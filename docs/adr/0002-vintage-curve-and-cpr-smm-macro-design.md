@@ -6,10 +6,9 @@
 ## Context
 
 Phase 2 adds two macro families to the package: `vintage_curve` and `cpr_smm`.
-Both are extracted and generalized from the credit-data-platform's risk marts
-(`mart_risk_vintage_curve.sql` and `mart_risk_prepayment_speed.sql`). The design
-decisions below are independent of Phase 1's roll-rate decisions but follow the
-same three-layer validation pattern.
+Both are extracted and generalized from a source credit analytics platform's risk
+marts. The design decisions below are independent of Phase 1's roll-rate decisions
+but follow the same three-layer validation pattern.
 
 Three concrete choices required non-obvious tradeoffs:
 
@@ -37,7 +36,7 @@ opposite of a correct vintage curve.
 
 ### 3. CPR/SMM denominator = performing-pool-only (non-prepaying active loans)
 
-The `cpr_smm` macro follows the flagship implementation:
+The `cpr_smm` macro follows the reference implementation:
 
 - `performing_pool_balance` = sum of `beginning_balance` where `is_active AND NOT is_prepayment`
 - `prepaid_balance` = sum of `prepaid_amount` where `is_prepayment`
@@ -78,8 +77,8 @@ convention used in US agency MBS prepayment reports. The conditional-pool conven
 (`SMM_conditional = prepaid / performing`) is common in European consumer-lending
 analytics and was the convention in the source flagship. Using the ABS convention
 would require re-labeling the columns and documenting the change prominently; callers
-familiar with the platform's convention would get different numbers for the same input.
-Rejected in favour of matching the source convention.
+familiar with the conditional-pool convention would get different numbers for the same
+input. Rejected in favour of matching the source convention.
 
 ## Consequences
 
@@ -91,8 +90,9 @@ Rejected in favour of matching the source convention.
   `assert_cpr_smm_annualization` — a mutation of the formula in the macro would produce
   a divergent CPR and fail this test without touching the expected seed.
 - `cohort_granularity='month'|'quarter'` is shared between both macros via the same
-  `_date_trunc_month` / `_date_trunc_quarter` helper macros, keeping the adapter-
-  specific branching in exactly two places.
+  `_date_trunc_month` / `_date_trunc_quarter` helper macros. The integer range
+  generation in `vintage_curve`'s mob spine is handled by the `_generate_series`
+  helper, keeping adapter-specific branching in exactly three well-isolated places.
 
 **Harder:**
 - The `first_period_per_loan` + `loan_origination_info` join pattern adds two CTEs to
@@ -101,7 +101,7 @@ Rejected in favour of matching the source convention.
   alternative but less readable than `FIRST(balance ORDER BY period)`.
 - The conditional-pool SMM denominator must be documented explicitly in the macro's
   input contract; callers coming from total-pool conventions will get higher SMM values
-  for the same loan portfolio. This is documented in `docs/macros/`.
+  for the same loan portfolio. This will be documented in `docs/macros/` (Phase 3).
 
 **Committed to:**
 - Output schema for both macros is the public contract. Additive columns can be

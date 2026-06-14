@@ -25,6 +25,7 @@ macros/
 ├── utils/
 │   ├── _date_trunc_month.sql     # Adapter: DATE_TRUNC (BigQuery) vs date_trunc (ANSI/DuckDB)
 │   ├── _date_trunc_quarter.sql   # Adapter: DATE_TRUNC QUARTER (BigQuery) vs date_trunc 'quarter'
+│   ├── _generate_series.sql      # Adapter: GENERATE_ARRAY (BigQuery) vs range() (DuckDB)
 │   └── _add_months.sql           # Adapter: DATE_ADD INTERVAL (BigQuery) vs + interval (ANSI)
 └── generic_tests/
     ├── credit_risk_no_negative_self_transition.sql  # Self-transition loan count must be >= 0
@@ -59,9 +60,9 @@ integration_tests/
     └── assert_cpr_smm_annualization.sql          # CPR = 1-(1-SMM)^12 verified independently
 ```
 
-Three macro families, all sharing the same two-helper (`_date_trunc_month`, `_date_trunc_quarter`)
-adapter pattern for BigQuery/ANSI portability. All other SQL is ANSI-portable across DuckDB and
-BigQuery.
+Three macro families sharing the same adapter helpers (`_date_trunc_month`, `_date_trunc_quarter`,
+`_generate_series`) for BigQuery/DuckDB portability. All other SQL is ANSI-portable across DuckDB
+and BigQuery.
 
 See [docs/adr/](docs/adr/) for design tradeoffs per phase.
 
@@ -81,7 +82,7 @@ See [docs/adr/](docs/adr/) for design tradeoffs per phase.
   - MOB-propagation filter bug (`total_mob` cutoff): caught by `assert_vintage_curve_matches_expected`
     (cumulative default count drops to 0 post-default event without fix)
   - Wrong CPR formula: caught by `assert_cpr_smm_annualization` (CPR != 1-(1-SMM)^12)
-- **CI runtime** (`make ci`): ~12 seconds on a MacBook M-series (includes SQLFluff lint)
+- **CI runtime** (`make ci`): ~25 seconds on a MacBook M-series (includes SQLFluff lint)
 
 ## Quickstart
 
@@ -89,7 +90,7 @@ See [docs/adr/](docs/adr/) for design tradeoffs per phase.
 git clone https://github.com/OmerTDK/dbt-credit-risk
 cd dbt-credit-risk
 uv sync
-make ci                 # lint (ruff + SQLFluff) + 7 pytest tests (includes dbt build + 11 dbt tests)
+make ci                 # lint (ruff + SQLFluff) + 15 pytest tests (includes dbt build + 15 dbt data tests)
 ```
 
 ### Using the macro in your project

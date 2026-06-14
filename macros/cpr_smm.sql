@@ -21,6 +21,23 @@
     'cpr_rate'
 ] -%}
 
+{%- set caller_col_args = [
+    loan_id_col,
+    origination_date_col,
+    performance_date_col,
+    beginning_balance_col,
+    prepaid_amount_col,
+    is_active_col,
+    is_prepayment_col
+] -%}
+{%- for col in caller_col_args -%}
+    {%- if col in reserved_output_cols -%}
+        {{ exceptions.raise_compiler_error(
+            "credit_risk.cpr_smm: column argument '" ~ col ~ "' collides with a reserved output column name. Rename the source column or use an alias."
+        ) }}
+    {%- endif -%}
+{%- endfor -%}
+
 {%- if relation is none -%}
     {{ exceptions.raise_compiler_error(
         "credit_risk.cpr_smm: 'relation' is required. Pass a dbt ref() or source() result."
@@ -97,6 +114,18 @@ negative_balance_count as (
     where {{ beginning_balance_col }} < 0
 ),
 
+duplicate_grain_pairs as (
+    select {{ loan_id_col }}, {{ performance_date_col }}, count(*) as row_count
+    from {{ relation }}
+    group by {{ loan_id_col }}, {{ performance_date_col }}
+    having count(*) > 1
+),
+
+grain_violation_count as (
+    select count(*) as duplicate_pair_count
+    from duplicate_grain_pairs
+),
+
 contract_assertions as (
     select
         1 / case when null_origination_count.null_count > 0 then 0 else 1 end
@@ -104,8 +133,10 @@ contract_assertions as (
         1 / case when null_performance_count.null_count > 0 then 0 else 1 end
             as _assert_performance_not_null,
         1 / case when negative_balance_count.negative_count > 0 then 0 else 1 end
-            as _assert_balance_non_negative
-    from null_origination_count, null_performance_count, negative_balance_count
+            as _assert_balance_non_negative,
+        1 / case when grain_violation_count.duplicate_pair_count > 0 then 0 else 1 end
+            as _assert_grain
+    from null_origination_count, null_performance_count, negative_balance_count, grain_violation_count
 ),
 
 loan_periods as (
@@ -162,7 +193,12 @@ pool_metrics as (
                 else 0
             end
         ) as performing_pool_balance,
-        sum(months_on_book_computed.prepaid_amount) as prepaid_balance,
+        sum(
+            case when months_on_book_computed.is_prepayment
+                then months_on_book_computed.prepaid_amount
+                else 0
+            end
+        ) as prepaid_balance,
         count(
             distinct case
                 when months_on_book_computed.is_active
@@ -207,8 +243,5 @@ select
     end as cpr_rate
 from pool_metrics
 cross join constants
-order by
-    pool_metrics.origination_cohort,
-    pool_metrics.months_on_book
 
 {% endmacro %}

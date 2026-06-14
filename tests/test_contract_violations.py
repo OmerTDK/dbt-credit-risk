@@ -20,7 +20,7 @@ def _run_dbt_parse(extra_model_sql: str) -> subprocess.CompletedProcess:
     model_path.write_text(extra_model_sql)
     try:
         return subprocess.run(
-            [str(DBT_BIN), "parse", "--profiles-dir", "."],
+            [str(DBT_BIN), "parse", "--no-partial-parse", "--profiles-dir", "."],
             cwd=INTEGRATION_TESTS_DIR,
             env={**os.environ},
             capture_output=True,

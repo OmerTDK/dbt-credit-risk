@@ -24,6 +24,22 @@
     'is_censored'
 ] -%}
 
+{%- set caller_col_args = [
+    loan_id_col,
+    origination_date_col,
+    performance_date_col,
+    is_default_col,
+    is_prepayment_col,
+    balance_col
+] -%}
+{%- for col in caller_col_args -%}
+    {%- if col in reserved_output_cols -%}
+        {{ exceptions.raise_compiler_error(
+            "credit_risk.vintage_curve: column argument '" ~ col ~ "' collides with a reserved output column name. Rename the source column or use an alias."
+        ) }}
+    {%- endif -%}
+{%- endfor -%}
+
 {%- if relation is none -%}
     {{ exceptions.raise_compiler_error(
         "credit_risk.vintage_curve: 'relation' is required. Pass a dbt ref() or source() result."
@@ -156,26 +172,11 @@ loan_origination_info as (
     select
         loan_events.loan_id,
         loan_events.origination_cohort,
-        loan_events.beginning_balance as origination_balance,
-        min(
-            case when loan_events.is_default
-                then loan_events.months_on_book
-            end
-        ) as default_mob,
-        min(
-            case when loan_events.is_prepayment
-                then loan_events.months_on_book
-            end
-        ) as prepayment_mob_raw,
-        max(loan_events.months_on_book) as total_mob
+        loan_events.beginning_balance as origination_balance
     from loan_events
     inner join first_period_per_loan
         on loan_events.loan_id = first_period_per_loan.loan_id
         and loan_events.performance_date = first_period_per_loan.first_performance_date
-    group by
-        loan_events.loan_id,
-        loan_events.origination_cohort,
-        loan_events.beginning_balance
 ),
 
 loan_totals as (
@@ -229,7 +230,7 @@ mob_spine as (
         mob_numbers.months_on_book
     from cohort_sizes
     cross join (
-        select unnest(range(1, 121)) as months_on_book
+        {{ _generate_series(1, 120) }}
     ) as mob_numbers
     where mob_numbers.months_on_book <= cohort_sizes.max_mob
 ),
