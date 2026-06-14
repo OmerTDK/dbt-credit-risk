@@ -1,0 +1,14 @@
+loan_id,origination_date,performance_date,beginning_balance,prepaid_amount,is_active,is_prepayment
+loan_p1,2024-01-01,2024-01-01,30000.00,0.00,true,false
+loan_p1,2024-01-01,2024-02-01,28000.00,6000.00,true,true
+loan_p1,2024-01-01,2024-03-01,22000.00,0.00,true,false
+loan_p2,2024-01-01,2024-01-01,20000.00,0.00,true,false
+loan_p2,2024-01-01,2024-02-01,18000.00,0.00,true,false
+loan_p2,2024-01-01,2024-03-01,16000.00,0.00,true,false
+loan_p3,2024-01-01,2024-01-01,10000.00,0.00,true,false
+loan_p3,2024-01-01,2024-02-01,9000.00,0.00,true,false
+loan_p3,2024-01-01,2024-03-01,8000.00,0.00,true,false
+loan_q1,2024-04-01,2024-04-01,25000.00,5000.00,true,true
+loan_q1,2024-04-01,2024-05-01,20000.00,0.00,true,false
+loan_q2,2024-04-01,2024-04-01,15000.00,0.00,true,false
+loan_q2,2024-04-01,2024-05-01,14000.00,0.00,true,false
