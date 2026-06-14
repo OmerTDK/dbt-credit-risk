@@ -20,9 +20,13 @@ row-for-row against hand-verified expected outputs.
 ```
 macros/
 ├── roll_rate_matrix.sql          # Main macro: delinquency state-transition matrix
-└── utils/
-    ├── _date_trunc_month.sql     # Adapter: DATE_TRUNC (BigQuery) vs date_trunc (ANSI/DuckDB)
-    └── _add_months.sql           # Adapter: DATE_ADD INTERVAL (BigQuery) vs + interval (ANSI)
+├── utils/
+│   ├── _date_trunc_month.sql     # Adapter: DATE_TRUNC (BigQuery) vs date_trunc (ANSI/DuckDB)
+│   └── _add_months.sql           # Adapter: DATE_ADD INTERVAL (BigQuery) vs + interval (ANSI)
+└── generic_tests/
+    ├── credit_risk_no_negative_self_transition.sql  # Self-transition loan count must be >= 0
+    ├── credit_risk_no_null_from_bucket.sql          # from_bucket must not be null
+    └── credit_risk_probabilities_sum_to_one.sql     # Counts sum to at_risk denominator per period
 
 integration_tests/
 ├── dbt_project.yml               # Self-contained dbt project, DuckDB :memory: target
@@ -39,7 +43,7 @@ integration_tests/
     ├── assert_no_negative_self_transition.sql
     ├── assert_probabilities_sum_to_one.sql    # SUM(transition_loan_count) = MAX(at_risk_loan_count)
     ├── assert_no_null_from_bucket.sql
-    └── assert_gap_exclusion.sql               # Loan C's inactive month excluded from denominator
+    └── assert_gap_exclusion.sql               # Loan C's inactive month excluded from at_risk denominator (Jan at_risk = 3, not 4)
 ```
 
 The macro implements a 12-CTE chain that computes non-self transitions via a self-join on
@@ -52,13 +56,16 @@ for the design tradeoffs.
 
 ## Results
 
-- **dbt build runtime** (DuckDB `:memory:`, 30-row seed): 0.14 seconds for 10 nodes
-  (3 seeds, 2 models, 5 tests)
-- **Test count**: 7 pytest tests + 5 dbt singular tests = 12 total
+- **dbt build runtime** (DuckDB `:memory:`, 30-row seed): ~0.17 seconds for 16 nodes
+  (3 seeds, 2 models, 11 data tests: 5 singular + 6 generic instances)
+- **Test count**: 7 pytest tests + 11 dbt data tests = 18 total
 - **Expected output rows**: 17 hand-verified rows covering 5 observation periods × multiple buckets
-- **Kill-verified mutant**: changing `INNER JOIN` → `LEFT JOIN` in `at_risk_denominator` breaks
-  gap exclusion and is caught by `assert_roll_rate_matches_expected` (5 mismatches returned)
-- **CI runtime** (`make ci`): ~15 seconds on a MacBook M-series
+- **Kill-verified mutants**:
+  - `INNER JOIN` → `LEFT JOIN` in `at_risk_denominator`: caught by `assert_gap_exclusion` (2 rows)
+    and `assert_roll_rate_matches_expected` (5 rows)
+  - `beginning_balance * 2` in `active_periods`: caught by `assert_roll_rate_matches_expected`
+    (17 rows — all absolute balance columns wrong)
+- **CI runtime** (`make ci`): ~10 seconds on a MacBook M-series (includes SQLFluff lint)
 
 ## Quickstart
 
@@ -66,7 +73,7 @@ for the design tradeoffs.
 git clone https://github.com/OmerTDK/dbt-credit-risk
 cd dbt-credit-risk
 uv sync
-make ci                 # lint + 7 pytest tests (includes dbt build + 5 dbt tests)
+make ci                 # lint (ruff + SQLFluff) + 7 pytest tests (includes dbt build + 11 dbt tests)
 ```
 
 ### Using the macro in your project
@@ -108,6 +115,10 @@ from (
 ) as roll_rates
 ```
 
+> The example above uses `dbt_utils.generate_surrogate_key` — add `dbt-labs/dbt_utils` to your
+> own `packages.yml` if you need surrogate keys. The `credit_risk` package itself has no
+> dependencies.
+
 **Input contract** — one row per `(loan_id, period_date)` per active loan period:
 
 | Column | Type | Contract |
@@ -115,7 +126,7 @@ from (
 | `loan_id_col` | VARCHAR | Natural key; `(loan_id, period_date)` must be unique for active rows |
 | `period_col` | DATE | First-of-month; the macro DATE_TRUNCs defensively but the caller should pre-truncate |
 | `bucket_col` | VARCHAR | Delinquency state label (`current`, `dpd_30`, etc.) |
-| `balance_col` | NUMERIC | Beginning-of-period balance; must be >= 0 for active rows |
+| `balance_col` | NUMERIC | Beginning-of-period balance; must be >= 0 and non-null for active rows |
 | `status_col` | VARCHAR | Active/inactive flag; rows where this != `active_status_value` are excluded |
 
 **Output schema** — the macro returns this SELECT (no surrogate key, no `_loaded_at`):

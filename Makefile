@@ -8,9 +8,10 @@ help: ## List available targets
 install: ## Install dependencies into .venv
 	uv sync
 
-lint: ## Ruff lint and format check
+lint: ## Ruff lint and format check, plus SQLFluff lint on SQL macros
 	uv run ruff check .
 	uv run ruff format --check .
+	uv run sqlfluff lint macros/
 
 test: ## Run the test suite (includes integration dbt build via subprocess)
 	uv run pytest -v

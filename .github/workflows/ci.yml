@@ -14,4 +14,5 @@ jobs:
       - run: uv sync
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: uv run sqlfluff lint macros/
       - run: uv run pytest -v

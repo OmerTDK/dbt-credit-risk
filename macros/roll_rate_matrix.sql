@@ -99,15 +99,17 @@ with constants as (
         {{ period_length_months }} as period_length_months
 ),
 
+duplicate_grain_pairs as (
+    select {{ loan_id_col }}, {{ period_col }}, count(*) as row_count
+    from {{ relation }}
+    where {{ status_col }} = '{{ active_status_value }}'
+    group by {{ loan_id_col }}, {{ period_col }}
+    having count(*) > 1
+),
+
 grain_violation_count as (
     select count(*) as duplicate_pair_count
-    from (
-        select {{ loan_id_col }}, {{ period_col }}, count(*) as row_count
-        from {{ relation }}
-        where {{ status_col }} = '{{ active_status_value }}'
-        group by {{ loan_id_col }}, {{ period_col }}
-        having count(*) > 1
-    ) as duplicates
+    from duplicate_grain_pairs
 ),
 
 null_period_count as (
@@ -120,7 +122,7 @@ null_period_count as (
 negative_balance_count as (
     select count(*) as negative_count
     from {{ relation }}
-    where {{ balance_col }} < 0
+    where ({{ balance_col }} < 0 or {{ balance_col }} is null)
       and {{ status_col }} = '{{ active_status_value }}'
 ),
 
@@ -142,7 +144,8 @@ active_periods as (
         {{ bucket_col }} as from_bucket,
         {{ balance_col }} as beginning_balance,
         {% for col in segment_cols %}{{ col }},
-        {% endfor %}cast({{ _add_months(_date_trunc_month(period_col), period_length_months) }} as date) as next_period_date
+        {% endfor %}cast({{ _add_months(_date_trunc_month(period_col), period_length_months) }} as date) as next_period_date,
+        contract_assertions._assert_grain as _assertion_pass
     from {{ relation }}
     cross join contract_assertions
     where {{ status_col }} = '{{ active_status_value }}'

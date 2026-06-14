@@ -41,6 +41,8 @@ mismatches as (
             when abs(cast(actual.transition_rate as double) - cast(expected.transition_rate as double)) > 0.000001 then 'transition_rate_mismatch'
             when abs(cast(actual.transition_balance_rate as double) - cast(expected.transition_balance_rate as double)) > 0.000001 then 'transition_balance_rate_mismatch'
             when actual.is_low_count_cell != expected.is_low_count_cell then 'is_low_count_cell_mismatch'
+            when abs(cast(actual.transition_balance as double) - cast(expected.transition_balance as double)) > 0.01 then 'transition_balance_mismatch'
+            when abs(cast(actual.at_risk_balance as double) - cast(expected.at_risk_balance as double)) > 0.01 then 'at_risk_balance_mismatch'
         end as failure_reason
     from actual
     full outer join expected
@@ -55,6 +57,8 @@ mismatches as (
         or abs(cast(actual.transition_rate as double) - cast(expected.transition_rate as double)) > 0.000001
         or abs(cast(actual.transition_balance_rate as double) - cast(expected.transition_balance_rate as double)) > 0.000001
         or actual.is_low_count_cell != expected.is_low_count_cell
+        or abs(cast(actual.transition_balance as double) - cast(expected.transition_balance as double)) > 0.01
+        or abs(cast(actual.at_risk_balance as double) - cast(expected.at_risk_balance as double)) > 0.01
 )
 
 select

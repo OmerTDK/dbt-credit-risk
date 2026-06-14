@@ -46,8 +46,8 @@ The macro signature uses flat named keyword arguments:
   in `active_periods`.
 - **Layer 3 — Post-model dbt singular tests**: Five tests shipped in `integration_tests/tests/`
   that assert structural invariants on the macro's output (row-for-row match against a
-  hand-verified expected seed, no negative self-transitions, probabilities sum to one, no null
-  from_bucket, gap exclusion holds).
+  hand-verified expected seed — including absolute balance columns — no negative self-transitions,
+  probabilities sum to one, no null from_bucket, gap exclusion denominator holds).
 
 ### 3. Self-join on next_period_date for gap-continuity
 
@@ -103,8 +103,10 @@ of targets supported rather than to the algorithm.
 - Callers get a single-macro interface with precise error messages before any SQL runs.
 - The integration-test harness (seed → model → dbt test) is reproducible without a live database:
   `dbt build --profiles-dir .` in `integration_tests/` using DuckDB `:memory:`.
-- Gap-exclusion behavior is tested explicitly (`assert_gap_exclusion.sql` + the row-for-row
-  expected seed, which was hand-computed before the macro was written).
+- Gap-exclusion behavior is tested explicitly: `assert_gap_exclusion.sql` directly asserts the
+  denominator count for Jan 2024 / current = 3 (not 4), confirming loan_c's inactive Feb row
+  is excluded from the `at_risk_denominator`. The row-for-row expected seed additionally pins
+  all absolute balance and rate values, including those affected by gap exclusion.
 - Adding a new supported target requires changes only in two helper macros.
 
 **Harder:**

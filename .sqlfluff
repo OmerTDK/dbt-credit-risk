@@ -2,6 +2,11 @@
 dialect = ansi
 templater = jinja
 max_line_length = 120
+# LT02 (indent) and LT05 (line length) produce false positives inside Jinja
+# template blocks ({%- if -%}, {%- for -%}) that SQLFluff cannot parse without
+# the dbt macro execution context. Exclude these layout rules so only genuine
+# SQL structure issues are flagged.
+exclude_rules = LT02, LT05
 
 [sqlfluff:indentation]
 indent_unit = space
