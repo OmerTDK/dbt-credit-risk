@@ -1,0 +1,4 @@
+loan_id,origination_date,performance_date,beginning_balance,prepaid_amount,is_active,is_prepayment
+loan_ia1,2024-07-01,2024-07-01,40000.00,0.00,true,false
+loan_ia2,2024-07-01,2024-07-01,20000.00,8000.00,true,true
+loan_ia3,2024-07-01,2024-07-01,15000.00,5000.00,false,true

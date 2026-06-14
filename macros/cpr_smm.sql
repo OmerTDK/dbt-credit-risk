@@ -194,7 +194,8 @@ pool_metrics as (
             end
         ) as performing_pool_balance,
         sum(
-            case when months_on_book_computed.is_prepayment
+            case when months_on_book_computed.is_active
+                    and months_on_book_computed.is_prepayment
                 then months_on_book_computed.prepaid_amount
                 else 0
             end
@@ -208,7 +209,8 @@ pool_metrics as (
         ) as eligible_loan_count,
         count(
             distinct case
-                when months_on_book_computed.is_prepayment
+                when months_on_book_computed.is_active
+                    and months_on_book_computed.is_prepayment
                     then months_on_book_computed.loan_id
             end
         ) as prepaying_loan_count

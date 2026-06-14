@@ -2,7 +2,7 @@
 
 dbt package of credit-risk analytics macros: roll-rate matrices, vintage curves, CPR/SMM prepayment curves
 
-> Status: Phase 2 complete — roll-rate matrix, vintage curve, and CPR/SMM macros all implemented with integration tests.
+> Status: Phase 3 complete — all three macros documented with input contracts, quickstart, and column-level descriptions wired into the integration-test project. Published docs site deferred to Phase 4 (Hub publication).
 
 ## Why this exists
 
@@ -39,9 +39,9 @@ integration_tests/
 │   ├── loan_performance.csv           # 5 loans × 6 months; covers all roll-rate scenarios
 │   ├── expected_roll_rate_matrix.csv  # 17 hand-computed expected output rows
 │   ├── loan_performance_segmented.csv # Same loans with product_type for segment tests
-│   ├── loan_performance_vintage.csv   # 6 loans, 2 cohorts; known defaults + prepayments by MOB
+│   ├── loan_performance_vintage.csv   # 17 loans, 3 cohorts; known defaults + prepayments by MOB
 │   ├── expected_vintage_curve.csv     # 9 hand-computed vintage curve rows
-│   ├── loan_performance_cpr.csv       # 5 loans, 2 cohorts; prepayment events at known MOBs
+│   ├── loan_performance_cpr.csv       # 6 loans, 2 cohorts; prepayment events at known MOBs
 │   └── expected_cpr_smm.csv          # 5 hand-computed CPR/SMM rows (incl. non-zero CPR values)
 ├── models/
 │   ├── roll_rate_output.sql           # roll_rate_matrix caller (unsegmented)
@@ -86,6 +86,8 @@ See [docs/adr/](docs/adr/) for design tradeoffs per phase.
 
 ## Quickstart
 
+### Try it locally (clone the repo)
+
 ```bash
 git clone https://github.com/OmerTDK/dbt-credit-risk
 cd dbt-credit-risk
@@ -93,9 +95,11 @@ uv sync
 make ci                 # lint (ruff + SQLFluff) + 15 pytest tests (includes dbt build + 15 dbt data tests)
 ```
 
-### Using the macro in your project
+### Install in your own dbt project
 
-Add to your `packages.yml`:
+> Note: dbt Package Hub publication is Phase 4. Until then, install via git ref.
+
+Add to your project's `packages.yml`:
 
 ```yaml
 packages:
@@ -103,18 +107,26 @@ packages:
     revision: main
 ```
 
-Then in a model:
+Run `dbt deps` to install. The package has no dependencies of its own.
+
+### Roll-rate matrix
+
+Create a model in your project (e.g. `models/risk/fct_roll_rate.sql`):
 
 ```sql
 {{ config(materialized='table') }}
 
 select
-    {{ dbt_utils.generate_surrogate_key([
-        'cast(observation_period as varchar)',
-        'from_bucket',
-        'to_bucket'
-    ]) }} as roll_rate_key,
-    roll_rates.*,
+    observation_period,
+    period_length_months,
+    from_bucket,
+    to_bucket,
+    transition_loan_count,
+    at_risk_loan_count,
+    transition_balance,   -- also available: at_risk_balance
+    transition_rate,
+    transition_balance_rate,
+    is_low_count_cell,
     current_timestamp as _loaded_at
 from (
     {{ credit_risk.roll_rate_matrix(
@@ -125,43 +137,115 @@ from (
         balance_col='outstanding_principal',
         status_col='loan_status',
         active_status_value='active',
-        segment_cols=['product_type', 'risk_tier'],
         period_length_months=1,
         minimum_cell_count=10
     ) }}
-) as roll_rates
+)
 ```
 
-> The example above uses `dbt_utils.generate_surrogate_key` — add `dbt-labs/dbt_utils` to your
-> own `packages.yml` if you need surrogate keys. The `credit_risk` package itself has no
-> dependencies.
+**Input relation** — one row per `(account_id, report_date)` per active loan period:
 
-**Input contract** — one row per `(loan_id, period_date)` per active loan period:
+| Your column | Type | Contract |
+|-------------|------|----------|
+| `account_id` | VARCHAR | Natural key; `(account_id, report_date)` must be unique for active rows |
+| `report_date` | DATE | First-of-month expected; the macro DATE_TRUNCs defensively |
+| `delinquency_category` | VARCHAR | Delinquency state label (`current`, `dpd_30`, `dpd_60`, etc.) |
+| `outstanding_principal` | NUMERIC | Beginning-of-period balance; must be >= 0 and non-null for active rows |
+| `loan_status` | VARCHAR | Active/inactive flag; rows where `loan_status != 'active'` are excluded |
 
-| Column | Type | Contract |
-|--------|------|----------|
-| `loan_id_col` | VARCHAR | Natural key; `(loan_id, period_date)` must be unique for active rows |
-| `period_col` | DATE | First-of-month; the macro DATE_TRUNCs defensively but the caller should pre-truncate |
-| `bucket_col` | VARCHAR | Delinquency state label (`current`, `dpd_30`, etc.) |
-| `balance_col` | NUMERIC | Beginning-of-period balance; must be >= 0 and non-null for active rows |
-| `status_col` | VARCHAR | Active/inactive flag; rows where this != `active_status_value` are excluded |
+Full contract, output schema, worked example, and edge cases: [`docs/macros/roll_rate_matrix.md`](docs/macros/roll_rate_matrix.md).
 
-**Output schema** — the macro returns this SELECT (no surrogate key, no `_loaded_at`):
+### Vintage curve
 
-| Column | Type |
-|--------|------|
-| `[segment_cols...]` | VARCHAR |
-| `observation_period` | DATE |
-| `period_length_months` | INTEGER |
-| `from_bucket` | VARCHAR |
-| `to_bucket` | VARCHAR |
-| `transition_loan_count` | INTEGER |
-| `at_risk_loan_count` | INTEGER |
-| `transition_balance` | DECIMAL(18,2) |
-| `at_risk_balance` | DECIMAL(18,2) |
-| `transition_rate` | DECIMAL(10,6) |
-| `transition_balance_rate` | DECIMAL(10,6) |
-| `is_low_count_cell` | BOOLEAN |
+```sql
+{{ config(materialized='table') }}
+
+select
+    origination_cohort,
+    months_on_book,
+    cohort_loan_count,
+    cumulative_default_rate,
+    cumulative_prepayment_rate,
+    is_censored,
+    current_timestamp as _loaded_at
+from (
+    {{ credit_risk.vintage_curve(
+        relation=ref('stg_lending__monthly_performance'),
+        loan_id_col='loan_id',
+        origination_date_col='origination_date',
+        performance_date_col='report_date',
+        is_default_col='is_default',
+        is_prepayment_col='is_prepayment',
+        balance_col='beginning_balance',
+        cohort_granularity='quarter',
+        censored_threshold=10
+    ) }}
+)
+```
+
+**Input relation** — one row per `(loan_id, report_date)`:
+
+| Your column | Type | Contract |
+|-------------|------|----------|
+| `loan_id` | VARCHAR | Natural key; `(loan_id, report_date)` must be unique |
+| `origination_date` | DATE | Loan origination date; must not be null |
+| `report_date` | DATE | Performance period date; must not be null |
+| `is_default` | BOOLEAN | True on the first period the loan is in default |
+| `is_prepayment` | BOOLEAN | True on the period of a full prepayment; suppressed if the loan has already defaulted |
+| `beginning_balance` | NUMERIC | Beginning-of-period balance; the first period's value is used as origination balance |
+
+Full contract, output schema, worked example, and edge cases: [`docs/macros/vintage_curve.md`](docs/macros/vintage_curve.md).
+
+### CPR/SMM
+
+```sql
+{{ config(materialized='table') }}
+
+select
+    origination_cohort,
+    months_on_book,
+    performing_pool_balance,
+    smm_rate,
+    cpr_rate,
+    current_timestamp as _loaded_at
+from (
+    {{ credit_risk.cpr_smm(
+        relation=ref('stg_lending__monthly_performance'),
+        loan_id_col='loan_id',
+        origination_date_col='origination_date',
+        performance_date_col='report_date',
+        beginning_balance_col='beginning_balance',
+        prepaid_amount_col='prepaid_amount',
+        is_active_col='is_active',
+        is_prepayment_col='is_prepayment',
+        cohort_granularity='quarter'
+    ) }}
+)
+```
+
+**Input relation** — one row per `(loan_id, report_date)`:
+
+| Your column | Type | Contract |
+|-------------|------|----------|
+| `loan_id` | VARCHAR | Natural key; `(loan_id, report_date)` must be unique |
+| `origination_date` | DATE | Loan origination date; must not be null |
+| `report_date` | DATE | Performance period date; must not be null |
+| `beginning_balance` | NUMERIC | Beginning-of-period balance; must be >= 0 |
+| `prepaid_amount` | NUMERIC | Unscheduled principal repaid this period (excess over scheduled payment); 0 for non-prepaying rows |
+| `is_active` | BOOLEAN | True for loans still in the performing or prepaying pool; false for closed/written-off |
+| `is_prepayment` | BOOLEAN | True on the period of a prepayment event; that period's `prepaid_amount` goes to the numerator |
+
+> SMM uses the **conditional-pool** denominator: `SMM = prepaid / performing_non_prepaying`. This
+> is the European consumer-lending convention. US agency (ABS) convention uses total-pool. See
+> [`docs/macros/cpr_smm.md`](docs/macros/cpr_smm.md) for details.
+
+Full contract, output schema, worked example, and edge cases: [`docs/macros/cpr_smm.md`](docs/macros/cpr_smm.md).
+
+### Macro docs
+
+- [`docs/macros/roll_rate_matrix.md`](docs/macros/roll_rate_matrix.md)
+- [`docs/macros/vintage_curve.md`](docs/macros/vintage_curve.md)
+- [`docs/macros/cpr_smm.md`](docs/macros/cpr_smm.md)
 
 ## Design decisions
 

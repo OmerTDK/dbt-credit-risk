@@ -91,3 +91,12 @@ seeds:
         prepaying_loan_count: integer
         smm_rate: double
         cpr_rate: double
+    loan_performance_cpr_inactive:
+      +column_types:
+        loan_id: varchar
+        origination_date: date
+        performance_date: date
+        beginning_balance: double
+        prepaid_amount: double
+        is_active: boolean
+        is_prepayment: boolean
