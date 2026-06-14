@@ -1,0 +1,8 @@
+name: credit_risk
+version: "0.1.0"
+config-version: 2
+
+macro-paths: ["macros"]
+
+flags:
+  send_anonymous_usage_stats: false
