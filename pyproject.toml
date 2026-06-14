@@ -2,11 +2,18 @@
 name = "dbt-credit-risk"
 version = "0.1.0"
 description = "dbt package of credit-risk analytics macros: roll-rate matrices, vintage curves, CPR/SMM prepayment curves"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.8", "pre-commit>=4.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.8",
+    "sqlfluff>=3.0",
+    "pre-commit>=4.0",
+    "dbt-core>=1.9.0",
+    "dbt-duckdb>=1.9.0",
+]
 
 [tool.ruff]
 line-length = 100

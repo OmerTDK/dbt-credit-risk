@@ -1,0 +1,7 @@
+credit_risk_integration_tests:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ":memory:"
+      threads: 1
