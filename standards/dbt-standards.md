@@ -10,16 +10,16 @@ Standards and conventions for a lending data warehouse built with dbt and BigQue
 2. **Consistent patterns** — same concept = same naming pattern everywhere
 3. **Layer-appropriate** — data transforms progressively through well-defined layers
 4. **Dimensional model ready** — clear fact/dimension distinction in DWH
-5. **Business-aligned dates** — local (Berlin) dates for reporting, UTC for storage
+5. **Business-aligned dates** — local dates for reporting, UTC for storage
 
 ## Timezone Convention
 
 **All timestamps are UTC unless explicitly suffixed with a timezone.**
 
-Berlin (Europe/Berlin) is the chosen business timezone for the synthetic bank — all reporting dates align to it.
+Business timezone is project-specific — configure the appropriate IANA timezone for your deployment (e.g. `Europe/Berlin`, `America/New_York`). All reporting dates align to it.
 
 - Columns ending in `_at` without a timezone suffix → UTC
-- Columns ending in `_berlin` → Europe/Berlin timezone (IANA tz, includes DST: CET/CEST)
+- Columns ending in `_local` → project's configured business timezone
 - When in doubt, it's UTC
 
 ## BigQuery Structure: Datasets and Tables
@@ -90,30 +90,30 @@ Foreign keys match the key name of the referenced table. Example: `dwh.fct_payme
 
 - `{event}_at` — TIMESTAMP, always UTC (`created_at`, `modified_at`, `contract_signed_at`)
 - `{event}_date` — DATE, local/business date (`due_date`, `payment_date`)
-- `{event}_date_berlin` — DATE derived from UTC to Europe/Berlin (`contract_signed_date_berlin`)
+- `{event}_date_local` — DATE derived from UTC to project business timezone (`contract_signed_date_local`)
 - DWH metadata: `_loaded_at`, `_updated_at`, `_extracted_at`, `_valid_from`, `_valid_to`
 
 ### Date Keys and dim_date
 
 **Rule: date keys in DWH are derived from DATE fields, not directly from timestamps.**
 
-If you need to join a timestamp to `dim_date`, derive a date field in the intermediate layer first. Date keys MUST reference business-relevant dates — typically the local Berlin date — so reports align with business calendar expectations.
+If you need to join a timestamp to `dim_date`, derive a date field in the intermediate layer first. Date keys MUST reference business-relevant dates — typically the local business-timezone date — so reports align with business calendar expectations.
 
 ```sql
--- Intermediate: derive Berlin date from UTC timestamp
+-- Intermediate: derive local date from UTC timestamp
 int.payment:
     payment_id
     paid_at                         -- TIMESTAMP (UTC)
-    payment_date_berlin             -- DATE (Europe/Berlin)
+    payment_date_local              -- DATE (project business timezone)
 
--- DWH: date key from Berlin date
+-- DWH: date key from local date
 dwh.fct_payment:
     payment_key
-    payment_date_key                -- FK to dim_date, from payment_date_berlin
+    payment_date_key                -- FK to dim_date, from payment_date_local
 
 -- Join in fact build:
 LEFT JOIN dwh.dim_date
-    ON int.payment.payment_date_berlin = dwh.dim_date.full_date
+    ON int.payment.payment_date_local = dwh.dim_date.full_date
 ```
 
 ### Source vs DWH Timestamps
@@ -155,7 +155,7 @@ downpayment_amount
 outstanding_amount
 ```
 
-DE VAT = 19%, AT VAT = 20%.
+VAT rates are jurisdiction-specific — store them in a seed or config, not hardcoded in SQL.
 
 ### Counts
 
@@ -196,8 +196,8 @@ Facts contain keys, measures, degenerate dimensions, and metadata. Example: `dwh
 payment_key                     -- surrogate PK
 loan_key                        -- FK → dwh.dim_loan
 borrower_key                    -- FK → dwh.dim_borrower
-payment_date_key                -- FK → dwh.dim_date (from payment_date_berlin)
-due_date_key                    -- FK → dwh.dim_date (from due_date_berlin)
+payment_date_key                -- FK → dwh.dim_date (from payment_date_local)
+due_date_key                    -- FK → dwh.dim_date (from due_date_local)
 
 payment_reference               -- degenerate dimension
 payment_method                  -- degenerate dimension
@@ -263,7 +263,7 @@ Holidays vary by country and region (German states differ; Austria has no region
 holiday_key                     -- surrogate PK
 date_key                        -- FK → dwh.dim_date
 country_code                    -- 'DE', 'AT'
-region_code                     -- 'DE-BY' (Bavaria), 'DE-BE' (Berlin), NULL = national
+region_code                     -- 'DE-BY' (Bavaria), 'DE-NW' (NRW), NULL = national
 holiday_name                    -- 'Christmas Day', 'German Unity Day'
 is_public_holiday               -- official public holiday
 is_bank_holiday                 -- banks closed
@@ -272,12 +272,12 @@ is_bank_holiday                 -- banks closed
 ### Business Day Determination
 
 ```sql
--- Business days for Berlin (DE-BE)
+-- Business days for a given country/region
 WITH parameters AS (
     SELECT '2025-01-01' AS start_date,
            '2025-12-31' AS end_date,
            'DE' AS country,
-           'DE-BE' AS region
+           'DE-BY' AS region
 )
 SELECT
     dates.full_date,
@@ -319,10 +319,10 @@ How names evolve through layers:
 | Raw | `signed_date_date` | TIMESTAMP | source field (often misnamed) |
 | Staging | `contract_signed_at` | TIMESTAMP | renamed, UTC |
 | Intermediate | `contract_signed_at` | TIMESTAMP | UTC |
-| Intermediate | `contract_signed_date_berlin` | DATE | derived UTC → Europe/Berlin |
-| DWH | `contract_signed_date_key` | INT | FK → dim_date, from Berlin date |
+| Intermediate | `contract_signed_date_local` | DATE | derived UTC → project business timezone |
+| DWH | `contract_signed_date_key` | INT | FK → dim_date, from local date |
 
-**Rule:** date keys always derived from DATE fields (typically Berlin), never directly from timestamps.
+**Rule:** date keys always derived from DATE fields (project business timezone), never directly from timestamps.
 
 ## Model Dependencies (DAG)
 
@@ -372,7 +372,7 @@ Any incremental model that accumulates point-in-time state (daily snapshots, app
     materialized='incremental',
     incremental_strategy='insert_overwrite',
     full_refresh=false,    -- REQUIRED for state-accumulating models
-    partition_by={'field': 'snapshot_date_berlin', 'data_type': 'date', 'granularity': 'day'}
+    partition_by={'field': 'snapshot_date', 'data_type': 'date', 'granularity': 'day'}
 ) }}
 ```
 

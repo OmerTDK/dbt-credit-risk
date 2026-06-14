@@ -2,7 +2,7 @@
 
 dbt package of credit-risk analytics macros: roll-rate matrices, vintage curves, CPR/SMM prepayment curves
 
-> Status: Phase 1 complete (roll-rate macro). Vintage and CPR/SMM macros are Phase 2.
+> Status: Phase 2 complete — roll-rate matrix, vintage curve, and CPR/SMM macros all implemented with integration tests.
 
 ## Why this exists
 
@@ -19,9 +19,13 @@ row-for-row against hand-verified expected outputs.
 
 ```
 macros/
-├── roll_rate_matrix.sql          # Main macro: delinquency state-transition matrix
+├── roll_rate_matrix.sql          # Delinquency state-transition matrix
+├── vintage_curve.sql             # Cumulative default/prepayment by cohort × months-on-book
+├── cpr_smm.sql                   # Single monthly mortality (SMM) + annualized CPR per cohort
 ├── utils/
 │   ├── _date_trunc_month.sql     # Adapter: DATE_TRUNC (BigQuery) vs date_trunc (ANSI/DuckDB)
+│   ├── _date_trunc_quarter.sql   # Adapter: DATE_TRUNC QUARTER (BigQuery) vs date_trunc 'quarter'
+│   ├── _generate_series.sql      # Adapter: GENERATE_ARRAY (BigQuery) vs range() (DuckDB)
 │   └── _add_months.sql           # Adapter: DATE_ADD INTERVAL (BigQuery) vs + interval (ANSI)
 └── generic_tests/
     ├── credit_risk_no_negative_self_transition.sql  # Self-transition loan count must be >= 0
@@ -32,40 +36,53 @@ integration_tests/
 ├── dbt_project.yml               # Self-contained dbt project, DuckDB :memory: target
 ├── profiles.yml                  # DuckDB :memory: profile (no credentials)
 ├── seeds/
-│   ├── loan_performance.csv      # 5 loans × 6 months = 30 rows; covers all transition scenarios
+│   ├── loan_performance.csv           # 5 loans × 6 months; covers all roll-rate scenarios
 │   ├── expected_roll_rate_matrix.csv  # 17 hand-computed expected output rows
-│   └── loan_performance_segmented.csv # Same loans with product_type column for segment tests
+│   ├── loan_performance_segmented.csv # Same loans with product_type for segment tests
+│   ├── loan_performance_vintage.csv   # 6 loans, 2 cohorts; known defaults + prepayments by MOB
+│   ├── expected_vintage_curve.csv     # 9 hand-computed vintage curve rows
+│   ├── loan_performance_cpr.csv       # 5 loans, 2 cohorts; prepayment events at known MOBs
+│   └── expected_cpr_smm.csv          # 5 hand-computed CPR/SMM rows (incl. non-zero CPR values)
 ├── models/
-│   ├── roll_rate_output.sql      # Macro caller (unsegmented)
-│   └── roll_rate_output_segmented.sql # Macro caller with segment_cols=['product_type']
+│   ├── roll_rate_output.sql           # roll_rate_matrix caller (unsegmented)
+│   ├── roll_rate_output_segmented.sql # roll_rate_matrix caller with segment_cols=['product_type']
+│   ├── vintage_curve_output.sql       # vintage_curve caller (quarter cohort granularity)
+│   └── cpr_smm_output.sql            # cpr_smm caller (quarter cohort granularity)
 └── tests/
-    ├── assert_roll_rate_matches_expected.sql  # Full-outer-join row-for-row assertion
+    ├── assert_roll_rate_matches_expected.sql     # Full-outer-join row-for-row assertion
     ├── assert_no_negative_self_transition.sql
-    ├── assert_probabilities_sum_to_one.sql    # SUM(transition_loan_count) = MAX(at_risk_loan_count)
+    ├── assert_probabilities_sum_to_one.sql       # SUM(transitions) = at_risk denominator
     ├── assert_no_null_from_bucket.sql
-    └── assert_gap_exclusion.sql               # Loan C's inactive month excluded from at_risk denominator (Jan at_risk = 3, not 4)
+    ├── assert_gap_exclusion.sql                  # Inactive-month exclusion from denominator
+    ├── assert_vintage_curve_matches_expected.sql # Full-outer-join row-for-row assertion
+    ├── assert_vintage_curve_at_risk_identity.sql # loans_at_risk = cohort - defaults - prepays
+    ├── assert_cpr_smm_matches_expected.sql       # Full-outer-join row-for-row assertion
+    └── assert_cpr_smm_annualization.sql          # CPR = 1-(1-SMM)^12 verified independently
 ```
 
-The macro implements a 12-CTE chain that computes non-self transitions via a self-join on
-`next_period_date`, derives self-transitions as the residual of the denominator, and unions both.
-The only target-specific code is in the two helper macros — everything else is ANSI SQL portable
-across DuckDB and BigQuery.
+Three macro families sharing the same adapter helpers (`_date_trunc_month`, `_date_trunc_quarter`,
+`_generate_series`) for BigQuery/DuckDB portability. All other SQL is ANSI-portable across DuckDB
+and BigQuery.
 
-See [docs/adr/0001-roll-rate-macro-api-and-contract.md](docs/adr/0001-roll-rate-macro-api-and-contract.md)
-for the design tradeoffs.
+See [docs/adr/](docs/adr/) for design tradeoffs per phase.
 
 ## Results
 
-- **dbt build runtime** (DuckDB `:memory:`, 30-row seed): ~0.17 seconds for 16 nodes
-  (3 seeds, 2 models, 11 data tests: 5 singular + 6 generic instances)
-- **Test count**: 7 pytest tests + 11 dbt data tests = 18 total
-- **Expected output rows**: 17 hand-verified rows covering 5 observation periods × multiple buckets
+- **dbt build runtime** (DuckDB `:memory:`, 7 seeds): ~0.24 seconds for 26 nodes
+  (7 seeds, 4 models, 15 data tests)
+- **Test count**: 15 pytest tests + 15 dbt data tests = 30 total
+- **Expected output rows**: 17 roll-rate + 9 vintage-curve + 5 CPR/SMM = 31 hand-verified rows
 - **Kill-verified mutants**:
   - `INNER JOIN` → `LEFT JOIN` in `at_risk_denominator`: caught by `assert_gap_exclusion` (2 rows)
     and `assert_roll_rate_matches_expected` (5 rows)
   - `beginning_balance * 2` in `active_periods`: caught by `assert_roll_rate_matches_expected`
     (17 rows — all absolute balance columns wrong)
-- **CI runtime** (`make ci`): ~10 seconds on a MacBook M-series (includes SQLFluff lint)
+  - `MIN(beginning_balance)` vs first-period join in `vintage_curve`: caught by
+    `assert_vintage_curve_matches_expected` (cohort_principal wrong for amortizing loans)
+  - MOB-propagation filter bug (`total_mob` cutoff): caught by `assert_vintage_curve_matches_expected`
+    (cumulative default count drops to 0 post-default event without fix)
+  - Wrong CPR formula: caught by `assert_cpr_smm_annualization` (CPR != 1-(1-SMM)^12)
+- **CI runtime** (`make ci`): ~25 seconds on a MacBook M-series (includes SQLFluff lint)
 
 ## Quickstart
 
@@ -73,7 +90,7 @@ for the design tradeoffs.
 git clone https://github.com/OmerTDK/dbt-credit-risk
 cd dbt-credit-risk
 uv sync
-make ci                 # lint (ruff + SQLFluff) + 7 pytest tests (includes dbt build + 11 dbt tests)
+make ci                 # lint (ruff + SQLFluff) + 15 pytest tests (includes dbt build + 15 dbt data tests)
 ```
 
 ### Using the macro in your project
