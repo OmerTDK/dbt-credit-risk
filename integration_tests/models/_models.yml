@@ -9,6 +9,44 @@ models:
       - credit_risk_no_negative_self_transition
       - credit_risk_no_null_from_bucket
       - credit_risk_probabilities_sum_to_one
+    columns:
+      - name: observation_period
+        description: >
+          Start of the observation window (DATE). First-of-month for monthly performance
+          data. One row per (observation_period, from_bucket, to_bucket) combination.
+      - name: period_length_months
+        description: >
+          Number of months per period, carried through from the macro argument. Always 1
+          in this integration-test model.
+      - name: from_bucket
+        description: Delinquency state at observation_period (e.g. current, dpd_30, dpd_60).
+      - name: to_bucket
+        description: Delinquency state at the following period.
+      - name: transition_loan_count
+        description: >
+          Count of loans moving from from_bucket to to_bucket. Self-transitions are the
+          residual: at_risk_loan_count minus all non-self transition counts.
+      - name: at_risk_loan_count
+        description: >
+          Count of active loans in from_bucket that have a confirmed successor period.
+          Loans that exit the active population (paid off, inactive, gapped) before the
+          next period are excluded (gap-continuity guard).
+      - name: transition_balance
+        description: Sum of beginning-of-period balances for transitioning loans.
+      - name: at_risk_balance
+        description: Sum of beginning-of-period balances for all at-risk loans.
+      - name: transition_rate
+        description: >
+          transition_loan_count / at_risk_loan_count. NULL if at_risk_loan_count = 0.
+          Stored as DECIMAL(10,6).
+      - name: transition_balance_rate
+        description: >
+          transition_balance / at_risk_balance. NULL if at_risk_balance = 0.
+          Stored as DECIMAL(10,6).
+      - name: is_low_count_cell
+        description: >
+          True when at_risk_loan_count < minimum_cell_count (10 in this model).
+          Flags statistically unreliable cells for downstream filtering.
 
   - name: roll_rate_output_segmented
     description: >
@@ -20,15 +58,121 @@ models:
       - credit_risk_probabilities_sum_to_one:
           arguments:
             segment_cols: ["product_type"]
+    columns:
+      - name: product_type
+        description: >
+          Caller-supplied segment dimension. Appears first in the output, before all
+          fixed output columns. Value is 'standard' or 'premium' in the segmented seed.
+      - name: observation_period
+        description: Start of the observation window (DATE).
+      - name: period_length_months
+        description: Number of months per period (1 in this model).
+      - name: from_bucket
+        description: Delinquency state at observation_period.
+      - name: to_bucket
+        description: Delinquency state at the following period.
+      - name: transition_loan_count
+        description: Count of loans moving from from_bucket to to_bucket within the segment.
+      - name: at_risk_loan_count
+        description: >
+          Count of active loans in from_bucket with a confirmed successor period,
+          within the segment.
+      - name: transition_balance
+        description: Sum of beginning balances for transitioning loans within the segment.
+      - name: at_risk_balance
+        description: Sum of beginning balances for at-risk loans within the segment.
+      - name: transition_rate
+        description: transition_loan_count / at_risk_loan_count within the segment.
+      - name: transition_balance_rate
+        description: transition_balance / at_risk_balance within the segment.
+      - name: is_low_count_cell
+        description: True when at_risk_loan_count < minimum_cell_count (10).
 
   - name: vintage_curve_output
     description: >
       Vintage curve computed by the credit_risk.vintage_curve macro over the
       loan_performance_vintage seed. Two cohorts (2024-Q1, 2024-Q2) with
       known defaults and prepayments at specific months-on-book.
+    columns:
+      - name: origination_cohort
+        description: >
+          First day of the origination quarter (cohort_granularity='quarter').
+          Groups loans into cohorts for cumulative curve calculation.
+      - name: months_on_book
+        description: >
+          Months elapsed since origination, 1-indexed. MOB 1 = the origination month.
+          The spine extends from 1 to the cohort's maximum observed MOB.
+      - name: cohort_loan_count
+        description: >
+          Total distinct loans in the origination cohort. Fixed across all MOBs for a
+          given cohort.
+      - name: cohort_principal
+        description: >
+          Sum of each loan's beginning balance at its earliest observed performance date.
+          Represents the cohort's origination exposure. Stored as DECIMAL(18,2).
+      - name: cumulative_default_count
+        description: >
+          Count of cohort loans that had is_default = true at or before this MOB.
+          Monotonically non-decreasing. Once a loan defaults it is counted at all
+          subsequent MOBs, even if no data rows exist past the default event.
+      - name: cumulative_prepayment_count
+        description: >
+          Count of cohort loans that prepaid (and did not default) at or before this MOB.
+          Prepayment is suppressed for a loan that has a default_mob: only one event
+          type is counted per loan.
+      - name: surviving_non_defaulted_count
+        description: >
+          cohort_loan_count minus cumulative_default_count. Does not subtract prepaid loans.
+          Represents loans that have not yet defaulted.
+      - name: loans_at_risk_count
+        description: >
+          cohort_loan_count minus cumulative_default_count minus cumulative_prepayment_count.
+          Loans still eligible to default or prepay. Identity verified by
+          assert_vintage_curve_at_risk_identity.
+      - name: cumulative_default_rate
+        description: >
+          cumulative_default_count / cohort_loan_count. Stored as DECIMAL(10,6).
+      - name: cumulative_prepayment_rate
+        description: >
+          cumulative_prepayment_count / surviving_non_defaulted_count. Conditional on
+          non-default survival: denominator excludes defaulted loans, not prepaid ones.
+          Stored as DECIMAL(10,6).
+      - name: is_censored
+        description: >
+          True when loans_at_risk_count < censored_threshold (10 in this model). Flags
+          MOBs where the remaining risk pool is too small for reliable rate estimation.
 
   - name: cpr_smm_output
     description: >
       CPR/SMM prepayment speed computed by the credit_risk.cpr_smm macro over the
       loan_performance_cpr seed. Two cohorts with known prepayment events at
       specific months-on-book.
+    columns:
+      - name: origination_cohort
+        description: >
+          First day of the origination quarter (cohort_granularity='quarter').
+          Groups loans into cohorts for prepayment speed calculation.
+      - name: months_on_book
+        description: Months elapsed since origination, 1-indexed.
+      - name: performing_pool_balance
+        description: >
+          Sum of beginning_balance for active, non-prepaying loans in this cohort-MOB.
+          This is the SMM denominator (conditional-pool convention). Stored as DECIMAL(18,2).
+      - name: prepaid_balance
+        description: >
+          Sum of prepaid_amount for prepaying loans in this cohort-MOB. This is the SMM
+          numerator. Stored as DECIMAL(18,2).
+      - name: eligible_loan_count
+        description: Count of distinct active, non-prepaying loans in this cohort-MOB.
+      - name: prepaying_loan_count
+        description: Count of distinct prepaying loans in this cohort-MOB.
+      - name: smm_rate
+        description: >
+          prepaid_balance / performing_pool_balance. Single Monthly Mortality: the fraction
+          of the performing pool that prepaid this period. NULL when performing_pool_balance = 0.
+          Stored as DECIMAL(10,6).
+      - name: cpr_rate
+        description: >
+          1 - (1 - smm_rate)^12. Conditional Prepayment Rate: the annualized prepayment speed.
+          NULL when performing_pool_balance = 0. Verified by assert_cpr_smm_annualization.
+          Stored as DECIMAL(10,6).
