@@ -50,3 +50,44 @@ seeds:
         outstanding_balance: double
         loan_status: varchar
         product_type: varchar
+    loan_performance_vintage:
+      +column_types:
+        loan_id: varchar
+        origination_date: date
+        performance_date: date
+        is_default: boolean
+        is_prepayment: boolean
+        beginning_balance: double
+        loan_status: varchar
+    expected_vintage_curve:
+      +column_types:
+        origination_cohort: date
+        months_on_book: integer
+        cohort_loan_count: integer
+        cohort_principal: double
+        cumulative_default_count: integer
+        cumulative_prepayment_count: integer
+        surviving_non_defaulted_count: integer
+        loans_at_risk_count: integer
+        cumulative_default_rate: double
+        cumulative_prepayment_rate: double
+        is_censored: boolean
+    loan_performance_cpr:
+      +column_types:
+        loan_id: varchar
+        origination_date: date
+        performance_date: date
+        beginning_balance: double
+        prepaid_amount: double
+        is_active: boolean
+        is_prepayment: boolean
+    expected_cpr_smm:
+      +column_types:
+        origination_cohort: date
+        months_on_book: integer
+        performing_pool_balance: double
+        prepaid_balance: double
+        eligible_loan_count: integer
+        prepaying_loan_count: integer
+        smm_rate: double
+        cpr_rate: double

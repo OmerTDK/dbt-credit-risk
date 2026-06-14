@@ -20,3 +20,15 @@ models:
       - credit_risk_probabilities_sum_to_one:
           arguments:
             segment_cols: ["product_type"]
+
+  - name: vintage_curve_output
+    description: >
+      Vintage curve computed by the credit_risk.vintage_curve macro over the
+      loan_performance_vintage seed. Two cohorts (2024-Q1, 2024-Q2) with
+      known defaults and prepayments at specific months-on-book.
+
+  - name: cpr_smm_output
+    description: >
+      CPR/SMM prepayment speed computed by the credit_risk.cpr_smm macro over the
+      loan_performance_cpr seed. Two cohorts with known prepayment events at
+      specific months-on-book.
