@@ -37,9 +37,15 @@ def test_vintage_curve_macro_exists() -> None:
 
 
 def test_vintage_curve_build_succeeds() -> None:
-    result = _dbt(["build", "--select", "vintage_curve_output+"])
+    """Full dbt build to ensure all seeds, models, and tests pass together.
+
+    Uses a full build rather than scoped select because the singular tests
+    (assert_vintage_curve_matches_expected) reference the expected_vintage_curve
+    seed which is not in the upstream graph of vintage_curve_output.
+    """
+    result = _dbt(["build"])
     assert result.returncode == 0, (
-        f"dbt build of vintage_curve_output failed (exit {result.returncode}):\n"
+        f"dbt build failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )

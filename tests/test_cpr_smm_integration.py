@@ -31,15 +31,20 @@ def test_cpr_smm_macro_exists() -> None:
     """The cpr_smm macro must be implemented before tests will pass."""
     macro_file = REPO_ROOT / "macros" / "cpr_smm.sql"
     assert macro_file.exists(), (
-        f"macro file not found: {macro_file}. "
-        "Implement macros/cpr_smm.sql before tests will pass."
+        f"macro file not found: {macro_file}. Implement macros/cpr_smm.sql before tests will pass."
     )
 
 
 def test_cpr_smm_build_succeeds() -> None:
-    result = _dbt(["build", "--select", "cpr_smm_output+"])
+    """Full dbt build to ensure all seeds, models, and tests pass together.
+
+    Uses a full build rather than scoped select because the singular tests
+    (assert_cpr_smm_matches_expected) reference the expected_cpr_smm seed
+    which is not in the upstream graph of cpr_smm_output.
+    """
+    result = _dbt(["build"])
     assert result.returncode == 0, (
-        f"dbt build of cpr_smm_output failed (exit {result.returncode}):\n"
+        f"dbt build failed (exit {result.returncode}):\n"
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
