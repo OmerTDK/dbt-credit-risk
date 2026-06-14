@@ -39,9 +39,9 @@ integration_tests/
 │   ├── loan_performance.csv           # 5 loans × 6 months; covers all roll-rate scenarios
 │   ├── expected_roll_rate_matrix.csv  # 17 hand-computed expected output rows
 │   ├── loan_performance_segmented.csv # Same loans with product_type for segment tests
-│   ├── loan_performance_vintage.csv   # 6 loans, 2 cohorts; known defaults + prepayments by MOB
+│   ├── loan_performance_vintage.csv   # 17 loans, 3 cohorts; known defaults + prepayments by MOB
 │   ├── expected_vintage_curve.csv     # 9 hand-computed vintage curve rows
-│   ├── loan_performance_cpr.csv       # 5 loans, 2 cohorts; prepayment events at known MOBs
+│   ├── loan_performance_cpr.csv       # 6 loans, 2 cohorts; prepayment events at known MOBs
 │   └── expected_cpr_smm.csv          # 5 hand-computed CPR/SMM rows (incl. non-zero CPR values)
 ├── models/
 │   ├── roll_rate_output.sql           # roll_rate_matrix caller (unsegmented)
@@ -118,10 +118,12 @@ Create a model in your project (e.g. `models/risk/fct_roll_rate.sql`):
 
 select
     observation_period,
+    period_length_months,
     from_bucket,
     to_bucket,
     transition_loan_count,
     at_risk_loan_count,
+    transition_balance,   -- also available: at_risk_balance
     transition_rate,
     transition_balance_rate,
     is_low_count_cell,

@@ -104,7 +104,7 @@ curve.
 
 ## Worked example
 
-Input (`loan_performance_vintage` seed, 30 rows, 10 loans, 3 cohorts):
+Input (`loan_performance_vintage` seed, 30 rows, 17 loans, 3 cohorts):
 
 ```
 Q1-2024 cohort (4 loans, origination 2024-01-01):

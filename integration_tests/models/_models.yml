@@ -62,7 +62,7 @@ models:
       - name: product_type
         description: >
           Caller-supplied segment dimension. Appears first in the output, before all
-          fixed output columns. Value is 'standard' or 'premium' in the segmented seed.
+          fixed output columns. Value is 'consumer' or 'auto' in the segmented seed.
       - name: observation_period
         description: Start of the observation window (DATE).
       - name: period_length_months
@@ -91,8 +91,10 @@ models:
   - name: vintage_curve_output
     description: >
       Vintage curve computed by the credit_risk.vintage_curve macro over the
-      loan_performance_vintage seed. Two cohorts (2024-Q1, 2024-Q2) with
-      known defaults and prepayments at specific months-on-book.
+      loan_performance_vintage seed. Three cohorts (2024-Q1: 4 loans with
+      defaults/prepayments, 2024-Q2: 3 loans with defaults/prepayments,
+      2024-Q3: 10 loans censoring-boundary fixture) demonstrating event
+      propagation and the is_censored threshold.
     columns:
       - name: origination_cohort
         description: >

@@ -87,10 +87,10 @@ in the integration-test suite.
 
 ## Worked example
 
-Input (`loan_performance_cpr` seed, 14 rows, 4 loans, 2 cohorts):
+Input (`loan_performance_cpr` seed, 14 rows, 6 loans, 2 cohorts):
 
 ```
-Q1-2024 cohort (3 active loans, origination 2024-01-01):
+Q1-2024 cohort (4 loans, origination 2024-01-01):
   loan_p1: 3 months; prepays 6000 at MOB 2 (beginning_balance 28000 at MOB 2)
   loan_p2: 3 months; no prepayment
   loan_p3: 3 months; no prepayment
