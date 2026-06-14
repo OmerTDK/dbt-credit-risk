@@ -144,6 +144,37 @@ models:
           True when loans_at_risk_count < censored_threshold (10 in this model). Flags
           MOBs where the remaining risk pool is too small for reliable rate estimation.
 
+  - name: cpr_smm_inactive_output
+    description: >
+      Isolated regression fixture for the is_active filter on prepayment aggregations.
+      Calls the credit_risk.cpr_smm macro over the loan_performance_cpr_inactive seed,
+      which contains one active performing loan, one active prepaying loan, and one
+      INACTIVE prepaying loan in the same cohort-MOB. Verified by
+      assert_cpr_smm_excludes_inactive_prepayment.
+    columns:
+      - name: origination_cohort
+        description: First day of the origination quarter. All three fixture loans share Q3-2024.
+      - name: months_on_book
+        description: Months elapsed since origination, 1-indexed. All fixture rows are MOB 1.
+      - name: performing_pool_balance
+        description: >
+          Sum of beginning_balance for active, non-prepaying loans. Expected 40000.00
+          (loan_ia1 only).
+      - name: prepaid_balance
+        description: >
+          Sum of prepaid_amount for active prepaying loans. Expected 8000.00
+          (loan_ia2 only; loan_ia3 is inactive and must be excluded).
+      - name: eligible_loan_count
+        description: Count of distinct active, non-prepaying loans. Expected 1 (loan_ia1).
+      - name: prepaying_loan_count
+        description: >
+          Count of distinct active prepaying loans. Expected 1 (loan_ia2 only).
+          The invariant guarded by assert_cpr_smm_excludes_inactive_prepayment.
+      - name: smm_rate
+        description: prepaid_balance / performing_pool_balance. Expected 0.200000.
+      - name: cpr_rate
+        description: 1 - (1 - smm_rate)^12. Expected approximately 0.931323.
+
   - name: cpr_smm_output
     description: >
       CPR/SMM prepayment speed computed by the credit_risk.cpr_smm macro over the
