@@ -1,0 +1,22 @@
+version: 2
+
+models:
+  - name: roll_rate_output
+    description: >
+      Roll-rate matrix computed by the credit_risk.roll_rate_matrix macro over the
+      loan_performance seed. Unsegmented (no segment_cols).
+    tests:
+      - credit_risk_no_negative_self_transition
+      - credit_risk_no_null_from_bucket
+      - credit_risk_probabilities_sum_to_one
+
+  - name: roll_rate_output_segmented
+    description: >
+      Roll-rate matrix computed by the credit_risk.roll_rate_matrix macro with
+      segment_cols=['product_type']. Validates segmented grouping.
+    tests:
+      - credit_risk_no_negative_self_transition
+      - credit_risk_no_null_from_bucket
+      - credit_risk_probabilities_sum_to_one:
+          arguments:
+            segment_cols: ["product_type"]

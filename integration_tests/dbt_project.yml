@@ -1,0 +1,52 @@
+name: credit_risk_integration_tests
+version: "0.1.0"
+config-version: 2
+
+profile: credit_risk_integration_tests
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros", "../macros"]
+
+dispatch:
+  - macro_namespace: credit_risk
+    search_order: ["credit_risk_integration_tests"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+
+models:
+  credit_risk_integration_tests:
+    +materialized: table
+
+seeds:
+  credit_risk_integration_tests:
+    loan_performance:
+      +column_types:
+        loan_id: varchar
+        period_date: date
+        delinquency_bucket: varchar
+        outstanding_balance: double
+        loan_status: varchar
+    expected_roll_rate_matrix:
+      +column_types:
+        observation_period: date
+        from_bucket: varchar
+        to_bucket: varchar
+        transition_loan_count: integer
+        at_risk_loan_count: integer
+        transition_balance: double
+        at_risk_balance: double
+        transition_rate: double
+        transition_balance_rate: double
+        is_low_count_cell: boolean
+    loan_performance_segmented:
+      +column_types:
+        loan_id: varchar
+        period_date: date
+        delinquency_bucket: varchar
+        outstanding_balance: double
+        loan_status: varchar
+        product_type: varchar
