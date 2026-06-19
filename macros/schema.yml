@@ -1,0 +1,163 @@
+version: 2
+
+macros:
+  - name: roll_rate_matrix
+    description: >
+      Computes a delinquency state-transition matrix from a loan-performance relation.
+      For each observation period and delinquency bucket, returns the count and balance
+      of loans that transition to every possible next-period bucket, together with
+      at-risk denominators and transition rates.
+    arguments:
+      - name: relation
+        type: relation
+        description: >
+          A dbt ref() or source() result. One row per (loan_id, period) per active loan.
+          The macro validates uniqueness of the (loan_id_col, period_col) grain for active rows.
+      - name: loan_id_col
+        type: string
+        description: Column name for the loan natural key. Must not be null.
+      - name: period_col
+        type: string
+        description: >
+          Column name for the performance period DATE. The macro DATE_TRUNCs to month
+          defensively. Must not be null for active rows.
+      - name: bucket_col
+        type: string
+        description: >
+          Column name for the delinquency state label (e.g. 'current', 'dpd_30', 'dpd_60').
+          String values are compared as-is; null values in active rows produce null from_bucket.
+      - name: balance_col
+        type: string
+        description: >
+          Column name for the beginning-of-period balance (NUMERIC). Must be >= 0 and
+          non-null for active rows; the macro raises a runtime division-by-zero error
+          on negative or null balances in the active population.
+      - name: status_col
+        type: string
+        description: Column name for the active/inactive status flag.
+      - name: active_status_value
+        type: string
+        description: >
+          The string value of status_col that marks a loan as at-risk (e.g. 'active').
+          Only rows where status_col = active_status_value enter the denominator.
+      - name: segment_cols
+        type: list
+        description: >
+          Optional list of column names to group by (e.g. ['product_type', 'region']).
+          Each segment column appears as a leading column in the output.
+          Must be a list, not a string. Defaults to [] (no segmentation).
+      - name: period_length_months
+        type: integer
+        description: >
+          Number of months between consecutive observation periods. Defaults to 1.
+          Must be a positive integer. Used to compute next_period_date via date arithmetic.
+      - name: minimum_cell_count
+        type: integer
+        description: >
+          Threshold below which a (period, from_bucket, to_bucket) cell is flagged as
+          is_low_count_cell = true. Defaults to 10. Must be an integer >= 1.
+
+  - name: vintage_curve
+    description: >
+      Computes cumulative default and prepayment rates by origination cohort and
+      months-on-book. Each row represents one cohort-MOB observation: how many loans
+      in the cohort had defaulted or prepaid by that point in their life.
+    arguments:
+      - name: relation
+        type: relation
+        description: >
+          A dbt ref() or source() result. One row per (loan_id, performance_date).
+          The macro validates uniqueness of the (loan_id_col, performance_date_col) grain.
+      - name: loan_id_col
+        type: string
+        description: Column name for the loan natural key. Must not be null.
+      - name: origination_date_col
+        type: string
+        description: >
+          Column name for the loan origination DATE. Must not be null.
+          The macro truncates to month or quarter per cohort_granularity.
+      - name: performance_date_col
+        type: string
+        description: >
+          Column name for the performance period DATE. Must not be null.
+          Used to compute months_on_book relative to origination_date.
+      - name: is_default_col
+        type: string
+        description: >
+          Column name for the boolean default flag. True on the first period the loan
+          enters default. Once defaulted, the flag propagates to all subsequent MOBs in
+          the cohort spine regardless of whether the loan has later rows.
+      - name: is_prepayment_col
+        type: string
+        description: >
+          Column name for the boolean prepayment flag. True on the period of a full
+          prepayment; suppressed if the loan has already defaulted (a loan cannot
+          simultaneously default and prepay in the vintage semantics).
+      - name: balance_col
+        type: string
+        description: >
+          Column name for the beginning-of-period balance (NUMERIC). The first observed
+          period's value is used as the loan's origination balance for cohort_principal.
+      - name: cohort_granularity
+        type: string
+        description: >
+          Origination cohort granularity: 'month' or 'quarter'. Defaults to 'quarter'.
+          Controls how origination_date is truncated when grouping loans into cohorts.
+      - name: censored_threshold
+        type: integer
+        description: >
+          Minimum loans_at_risk_count below which a cohort-MOB observation is flagged
+          as is_censored = true. Defaults to 10. Must be a positive integer.
+
+  - name: cpr_smm
+    description: >
+      Computes Single Monthly Mortality (SMM) and annualized Constant Prepayment Rate (CPR)
+      by origination cohort and months-on-book. Uses the conditional-pool denominator:
+      SMM = prepaid_balance / performing_pool_balance (non-prepaying active loans only).
+      CPR = 1 - (1 - SMM)^12.
+    arguments:
+      - name: relation
+        type: relation
+        description: >
+          A dbt ref() or source() result. One row per (loan_id, performance_date).
+          The macro validates uniqueness of the (loan_id_col, performance_date_col) grain.
+      - name: loan_id_col
+        type: string
+        description: Column name for the loan natural key. Must not be null.
+      - name: origination_date_col
+        type: string
+        description: >
+          Column name for the loan origination DATE. Must not be null.
+          Truncated to month or quarter per cohort_granularity for cohort grouping.
+      - name: performance_date_col
+        type: string
+        description: >
+          Column name for the performance period DATE. Must not be null.
+          Used to compute months_on_book relative to origination_date.
+      - name: beginning_balance_col
+        type: string
+        description: >
+          Column name for the beginning-of-period balance (NUMERIC). Must be >= 0.
+          Only rows where is_active = true and is_prepayment = false contribute to
+          performing_pool_balance (the SMM denominator).
+      - name: prepaid_amount_col
+        type: string
+        description: >
+          Column name for the unscheduled principal repaid this period (NUMERIC).
+          Only rows where is_active = true and is_prepayment = true contribute to
+          prepaid_balance (the SMM numerator). Use 0 for non-prepaying rows.
+      - name: is_active_col
+        type: string
+        description: >
+          Column name for the boolean active-loan flag. True for loans still in the
+          performing or prepaying pool; false for closed or written-off loans.
+      - name: is_prepayment_col
+        type: string
+        description: >
+          Column name for the boolean prepayment-event flag. True on the period of
+          a prepayment event; that period's prepaid_amount goes to the SMM numerator.
+      - name: cohort_granularity
+        type: string
+        description: >
+          Origination cohort granularity: 'month' or 'quarter'. Defaults to 'quarter'.
+          Controls how origination_date is truncated when grouping loans into cohorts.
