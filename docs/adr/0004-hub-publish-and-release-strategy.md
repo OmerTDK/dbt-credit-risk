@@ -59,9 +59,10 @@ The macros use:
 - No `dbt_utils` or other package dependencies — zero dependency risk
 - No features from dbt 1.9+ that would push the floor higher
 
-dbt 1.8 was released in May 2024 and introduced the `require-dbt-version` field with proper
-semver range syntax in `dbt_project.yml`. Supporting 1.7 would require testing against an
-additional release; supporting 1.6 is unnecessary given 1.8 is now 2+ years old.
+`require-dbt-version` has existed since dbt 0.13.0. The floor is set at 1.8 because it
+represents the oldest dbt-core release still in wide active use (released May 2024, now 2+
+years old). Supporting 1.7 would require testing against an additional release; supporting
+older versions is unnecessary given the adoption curve.
 
 The ceiling is deliberately left open (`>=1.8.0` not `>=1.8.0,<2.0.0`) because the macros
 use no private dbt internals — there is no reason to expect them to break in dbt 2.x.
