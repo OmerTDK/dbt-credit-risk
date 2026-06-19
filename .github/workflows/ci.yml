@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest
@@ -16,3 +23,23 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run sqlfluff lint macros/
       - run: uv run pytest -v
+
+  security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v8.2.0
+      - run: uv sync
+      - name: bandit (Python SAST)
+        run: uv run bandit -r . -c pyproject.toml --exclude .venv
+      - name: pip-audit (dependency CVEs)
+        run: uv run pip-audit
+      - name: gitleaks (secret scan)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
